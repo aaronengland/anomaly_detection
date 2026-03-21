@@ -8,7 +8,7 @@ Paylocity's data science team builds anomaly detection systems for payroll trans
 
 ## S3 Bucket
 
-`anomaly-detection-demo`
+`anomaly-detection-demo-repo`
 
 All data is read from and written to this bucket. Raw data goes in `00_data_collection/`, preprocessed splits in `02_preprocessing/`.
 
@@ -22,7 +22,7 @@ PaySim Synthetic Financial Transactions (Kaggle) — ~6.3M mobile money transact
 anomaly_detection/
 ├── 00_data_collection/notebook.ipynb     # Download PaySim from Kaggle, clean, upload to S3
 ├── 01_eda/notebook.ipynb                 # Transaction EDA: distributions, fraud by type, balance analysis
-├── 02_preprocessing/notebook.ipynb       # Feature engineering, scaling, temporal train/test split
+├── 02_preprocessing/notebook.ipynb       # Feature engineering, scaling, temporal train/valid/test split
 ├── 03_isolation_forest/notebook.ipynb    # Isolation Forest anomaly detection
 ├── 04_lof/notebook.ipynb                 # Local Outlier Factor anomaly detection
 ├── 05_comparison/notebook.ipynb          # Side-by-side model comparison + ensemble analysis
@@ -37,7 +37,7 @@ Run notebooks sequentially: 00 → 01 → 02 → 03 → 04 → 05. Each notebook
 ## Key Technical Details
 
 - **Unsupervised approach**: Models train on non-fraud data only from the training period — simulates real-world deployment where labels may not be available
-- **Temporal split**: First 80% of time steps = train, last 20% = test (no data leakage)
+- **Temporal split**: First 60% of time steps = train, next 20% = valid, last 20% = test (no data leakage)
 - **Feature engineering**: balance_change_orig, balance_change_dest, amount_to_balance_ratio, is_balance_zeroed, hour_of_day, one-hot transaction type
 - **Both models use Bayesian hyperparameter tuning via Optuna** (20 trials each)
 - **Isolation Forest tuning**: n_estimators, max_samples, contamination, max_features
