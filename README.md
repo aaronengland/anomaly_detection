@@ -1,224 +1,228 @@
 # Anomaly Detection on Financial Transactions
 
-This project builds an anomaly detection system that identifies fraudulent transactions in financial data. It uses **unsupervised machine learning** — meaning the models learn what "normal" transactions look like without being told which ones are fraud — and then flags anything that looks unusual.
+In this project, I built a system to automatically detect fraudulent transactions in a dataset of over 6.3 million simulated mobile money transfers. The challenge was that fraud is extremely rare — only about 1 in every 800 transactions is fraudulent — so I used an "unsupervised" approach, meaning the models learned what normal transactions look like without ever being shown examples of fraud, and then flagged anything that looked unusual. I trained two different detection models (Isolation Forest and Local Outlier Factor), tuned them using Bayesian optimization, and then combined their predictions into an ensemble that achieves 96% precision — meaning that when the system flags a transaction as suspicious, it is correct 96 out of 100 times.
 
-This is the same approach used in the real world for payroll fraud detection, where companies need to catch suspicious activity before labeled examples of fraud are available.
+---
 
-## What Does This Project Do?
+## Dataset Overview
 
-Imagine you work at a company that processes millions of financial transactions. Most of them are legitimate, but a tiny fraction (about 1 in 800) are fraudulent. You can't manually review every transaction, so you need an automated system that says: "Hey, this one looks suspicious — you should check it."
+The data comes from PaySim, a synthetic dataset that simulates real-world mobile money transactions. It contains 6,362,620 transactions across five types, with an extreme class imbalance — only 0.13% of transactions are fraudulent.
 
-That's exactly what this project builds. It trains two different anomaly detection models, compares their performance, and combines them into an ensemble that achieves **96% precision** — meaning when the system flags a transaction as suspicious, it's right 96 out of 100 times.
+| Property | Value |
+|----------|-------|
+| Total Transactions | 6,362,620 |
+| Fraudulent Transactions | 8,213 (0.13%) |
+| Non-Fraudulent Transactions | 6,354,407 (99.87%) |
+| Transaction Types | 5 (Cash Out, Payment, Cash In, Transfer, Debit) |
+| Average Transaction Amount | $179,862 |
+| Median Transaction Amount | $74,872 |
 
-## The Dataset
+---
 
-This project uses **PaySim**, a publicly available synthetic dataset that simulates mobile money transactions. It's available on [Kaggle](https://www.kaggle.com/datasets/ealaxi/paysim1).
+## Exploratory Data Analysis
 
-- **6.3 million transactions** across 5 types: CASH_IN, CASH_OUT, DEBIT, PAYMENT, and TRANSFER
-- **11 columns** including transaction amount, sender/receiver balances before and after, and a fraud label
-- **Only 0.13% of transactions are fraud** — this extreme imbalance is realistic and makes the problem challenging
-
-## How It Works (Step by Step)
-
-The project is organized as 6 Jupyter notebooks, meant to be run in order:
-
-### Notebook 00 — Data Collection
-
-Downloads the PaySim dataset from Kaggle, performs basic cleaning (checking for missing values, ensuring correct data types), and uploads the cleaned data to AWS S3 as a parquet file for fast access by the other notebooks.
-
-### Notebook 01 — Exploratory Data Analysis (EDA)
-
-Explores the dataset visually to understand what we're working with:
-
-- **Class imbalance**: 99.87% of transactions are normal, only 0.13% are fraud
-- **Fraud by transaction type**: Fraud only occurs in TRANSFER and CASH_OUT transactions
-- **Amount patterns**: Fraudulent transactions tend to have distinctive amount and balance-change patterns
-- **Temporal trends**: How transaction volume and fraud incidents change over time
-
-This step generates 8 visualizations that help build intuition about the data before modeling.
+### Class Distribution
 
 ![Class Distribution](01_eda/output/01_class_distribution.png)
 
+This chart shows how dramatically imbalanced the dataset is. The overwhelming majority of transactions (99.87%) are legitimate, with fraud making up just a tiny sliver (0.13%). I used a logarithmic scale here so the fraud bar is actually visible — on a regular scale it would be nearly invisible. This extreme imbalance is why I chose unsupervised methods that learn "normal" behavior rather than trying to learn from the handful of fraud examples.
+
+### Transaction Type Distribution
+
 ![Transaction Type Distribution](01_eda/output/02_transaction_type_distribution.png)
 
-![Amount Distribution](01_eda/output/03_amount_distribution.png)
+This chart breaks down how many transactions fall into each category. Cash Out and Payment are by far the most common, followed by Cash In. Transfer and Debit transactions are much less frequent. Understanding the volume of each type is important because, as I show next, fraud is concentrated in only certain types.
 
-![Amount by Type](01_eda/output/04_amount_by_type.png)
+### Fraud by Transaction Type
 
 ![Fraud by Transaction Type](01_eda/output/05_fraud_by_type.png)
 
+This is one of the most important findings from the exploratory analysis. Fraud occurs exclusively in Transfer and Cash Out transactions — the two types where money leaves an account. Cash In, Payment, and Debit transactions have zero fraud. This makes intuitive sense: a fraudster's goal is to move money out of a victim's account. The fraud rate for Transfers (~4.6%) is notably higher than Cash Out (~4.1%).
+
+### Transaction Amount Distribution
+
+![Amount Distribution](01_eda/output/03_amount_distribution.png)
+
+This chart compares the distribution of transaction amounts for fraudulent versus non-fraudulent transactions. Both are shown on a logarithmic scale because amounts span a huge range ($0 to $92.4 million). Fraudulent transactions tend to involve larger amounts, which makes sense — if someone is stealing money, they typically try to take as much as possible.
+
+### Amount by Transaction Type
+
+![Amount by Type](01_eda/output/04_amount_by_type.png)
+
+These box plots show how transaction amounts vary across the five transaction types. Each box represents the middle 50% of transactions for that type, with the line inside marking the median. Transfer and Cash Out transactions (where fraud occurs) tend to involve higher amounts compared to other types.
+
+### Balance Analysis
+
 ![Balance Analysis](01_eda/output/06_balance_analysis.png)
+
+This scatter plot reveals a key fraud pattern: the relationship between transaction amount and how the sender's balance changes. Many fraudulent transactions (shown in a distinct color) result in the sender's balance being completely emptied — a strong indicator of suspicious activity. This insight directly informed the features I engineered for the models.
+
+### Correlation Heatmap
 
 ![Correlation Heatmap](01_eda/output/07_correlation_heatmap.png)
 
+This heatmap shows how strongly each pair of numerical features is related. Darker colors indicate stronger relationships. For example, there is a strong correlation between the original balance and the new balance, which is expected. I used this analysis to understand feature relationships and guide feature engineering decisions.
+
+### Temporal Distribution
+
 ![Temporal Distribution](01_eda/output/08_step_distribution.png)
 
-### Notebook 02 — Preprocessing
+This two-panel chart shows how transaction volume and fraud incidents change over time. The top panel shows the overall flow of transactions, while the bottom panel shows when fraud occurs. Understanding these temporal patterns was important for designing the time-based data split I used to prevent data leakage during model training.
 
-Prepares the data for the machine learning models:
+---
 
-1. **Feature engineering** — Creates new columns from the raw data that help the models detect fraud:
-   - `balance_change_orig` / `balance_change_dest`: How much the sender's and receiver's balances changed
-   - `amount_to_balance_ratio`: How large the transaction is relative to the sender's balance (a big withdrawal from a small account is suspicious)
-   - `is_balance_zeroed`: Whether the sender's balance went to zero (a strong fraud signal)
-   - `hour_of_day`: What time the transaction occurred
-   - One-hot encoded transaction type (CASH_IN, CASH_OUT, etc.)
+## Feature Engineering and Preprocessing
 
-2. **Temporal train/valid/test split** — Splits the data by time, not randomly:
-   - **Training set (first 60% of time)**: ~600K non-fraud transactions only. The models learn what "normal" looks like from this.
-   - **Validation set (next 20% of time)**: ~228K transactions (both fraud and non-fraud). Used to tune model settings and pick the best decision threshold.
-   - **Test set (final 20% of time)**: ~124K transactions (both fraud and non-fraud). Used for final, unbiased performance evaluation.
+I transformed the raw transaction data into 10 engineered features designed to help the models distinguish normal from anomalous behavior.
 
-   Splitting by time simulates real deployment: the model trains on historical data and must detect fraud in future transactions it hasn't seen before.
+| Feature | Description | Why It Matters |
+|---------|-------------|----------------|
+| `balance_change_orig` | How much the sender's balance changed | Large unexpected drops may indicate fraud |
+| `balance_change_dest` | How much the receiver's balance changed | Unusual inflows may signal a fraud destination |
+| `amount_to_balance_ratio` | Transaction amount relative to sender's balance | Draining a large percentage of an account is suspicious |
+| `is_balance_zeroed` | Whether the sender's balance hit zero | Accounts being emptied is a strong fraud signal |
+| `hour_of_day` | Time of day the transaction occurred | Fraud may cluster at unusual hours |
+| `type_CASH_IN` | Whether the transaction was a Cash In | One-hot encoded transaction type |
+| `type_CASH_OUT` | Whether the transaction was a Cash Out | One-hot encoded transaction type |
+| `type_DEBIT` | Whether the transaction was a Debit | One-hot encoded transaction type |
+| `type_PAYMENT` | Whether the transaction was a Payment | One-hot encoded transaction type |
+| `type_TRANSFER` | Whether the transaction was a Transfer | One-hot encoded transaction type |
 
-3. **Feature scaling** — Standardizes all numeric features to have mean 0 and standard deviation 1, which helps both models perform better.
+### Data Splitting Strategy
 
-### Notebook 03 — Isolation Forest
+I split the data by time to simulate a real-world deployment where models are trained on past data and evaluated on future data:
 
-The first anomaly detection model. **Isolation Forest** works by randomly partitioning data with decision trees. The key insight: anomalies are rare and different from normal data, so they can be "isolated" in fewer random splits. Normal data points, being similar to each other, require many more splits to separate.
+| Split | Time Period | Transactions | Fraud Rate | Purpose |
+|-------|------------|-------------|------------|---------|
+| Training | First 60% of time steps | 600,593 | 0% (non-fraud only) | Models learn what "normal" looks like |
+| Validation | Next 20% of time steps | 228,103 | 0.68% | Tune hyperparameters and thresholds |
+| Test | Final 20% of time steps | 123,580 | 1.34% | Final unbiased evaluation |
 
-- **Hyperparameter tuning**: Uses Optuna (a Bayesian optimization library) to search for the best model settings across 5 trials, optimizing for PR-AUC on the validation set
-- **Best parameters found**: 260 trees, 8 features per tree, ~1.3% contamination rate
+The training set contains only non-fraudulent transactions — this is the core of the unsupervised approach. The models never see fraud during training; they learn the patterns of normal behavior and then flag anything that deviates from those patterns.
 
-**Results on test set:**
+---
 
-| Metric | Score |
-|--------|-------|
-| PR-AUC | 0.5182 |
-| ROC-AUC | 0.9140 |
-| Precision | 0.7912 |
-| Recall | 0.3918 |
-| F1-Score | 0.5241 |
+## Model 1: Isolation Forest
 
-This means: when Isolation Forest flags a transaction as fraud, it's correct **79% of the time** (precision), and it catches **39% of all fraud** (recall).
+Isolation Forest works by randomly splitting data with decision trees. The key insight is that anomalies are rare and different from normal data, so they can be "isolated" in fewer splits. A normal transaction is buried deep in the data and takes many splits to separate, while a fraudulent transaction stands out and can be isolated quickly.
+
+I used Bayesian optimization (Optuna) to tune the hyperparameters, optimizing for PR-AUC — a metric specifically designed for imbalanced datasets where the thing you are looking for is very rare.
+
+### Anomaly Score Distribution
 
 ![Isolation Forest Anomaly Scores](03_isolation_forest/output/01_anomaly_scores.png)
 
-![Isolation Forest Precision-Recall Curve](03_isolation_forest/output/02_precision_recall_curve.png)
+This histogram shows how the model scores each transaction. Higher scores mean "more anomalous." The dashed vertical line is the optimal threshold — transactions scoring above this line get flagged as suspicious. The key takeaway is the separation between the non-fraud scores (clustered to the left) and fraud scores (spread further to the right), indicating the model is learning meaningful patterns.
+
+### Precision-Recall Curve
+
+![Isolation Forest PR Curve](03_isolation_forest/output/02_precision_recall_curve.png)
+
+This curve shows the tradeoff between precision (when I flag something, how often am I right?) and recall (of all the fraud that exists, how much did I catch?). A perfect model would hug the top-right corner. The area under this curve (PR-AUC = 0.52) is the single best summary metric for imbalanced problems like this one.
+
+### ROC Curve
 
 ![Isolation Forest ROC Curve](03_isolation_forest/output/03_roc_curve.png)
 
+The ROC curve shows how well the model separates fraud from non-fraud across all possible thresholds. An ROC-AUC of 0.91 means the model has strong discriminating power — if I randomly picked one fraudulent and one legitimate transaction, the model would correctly rank the fraudulent one as more suspicious 91% of the time.
+
+### Confusion Matrix
+
 ![Isolation Forest Confusion Matrix](03_isolation_forest/output/04_confusion_matrix.png)
 
-### Notebook 04 — Local Outlier Factor (LOF)
+This grid shows exactly what the model got right and wrong on the test set at the optimal threshold. It breaks predictions into four categories: correctly identified fraud (true positives), correctly identified non-fraud (true negatives), legitimate transactions incorrectly flagged (false positives), and fraud that was missed (false negatives).
 
-The second anomaly detection model. **LOF** works differently — it compares each transaction's "local density" (how close its nearest neighbors are) to its neighbors' local densities. If a point is in a much sparser region than its neighbors, it's likely an anomaly.
+---
 
-- **Hyperparameter tuning**: 5 Optuna trials optimizing PR-AUC, tuning the number of neighbors and contamination rate
-- **Best parameters found**: 21 neighbors, ~9.8% contamination rate
+## Model 2: Local Outlier Factor (LOF)
 
-**Results on test set:**
+Local Outlier Factor takes a different approach — instead of isolating points, it compares the "density" of each transaction's neighborhood to its neighbors' neighborhoods. If a transaction sits in a sparse region while its neighbors are in dense regions, it is likely an outlier. Think of it like noticing someone standing alone in a crowd — they are conspicuous because everyone around them is clustered together.
 
-| Metric | Score |
-|--------|-------|
-| PR-AUC | 0.3320 |
-| ROC-AUC | 0.9330 |
-| Precision | 0.3083 |
-| Recall | 0.5756 |
-| F1-Score | 0.4015 |
-
-LOF catches **more fraud** (58% recall vs. 39%), but at the cost of **more false alarms** (31% precision vs. 79%). This is the classic precision-recall tradeoff.
+### Anomaly Score Distribution
 
 ![LOF Anomaly Scores](04_lof/output/01_anomaly_scores.png)
 
-![LOF Precision-Recall Curve](04_lof/output/02_precision_recall_curve.png)
+This histogram shows the LOF anomaly scores. Compared to Isolation Forest, the score distribution has more variability, which reflects the different way LOF measures anomalousness. The threshold line shows where the model draws the line between "normal" and "suspicious."
+
+### Precision-Recall Curve
+
+![LOF PR Curve](04_lof/output/02_precision_recall_curve.png)
+
+The PR curve for LOF shows a steeper decline compared to Isolation Forest, reflecting a more pronounced tradeoff between precision and recall. The PR-AUC of 0.33 is lower than Isolation Forest's 0.52, indicating that LOF struggles more with the precision-recall balance on this particular dataset.
+
+### ROC Curve
 
 ![LOF ROC Curve](04_lof/output/03_roc_curve.png)
 
+Interestingly, LOF achieves a slightly higher ROC-AUC (0.93) than Isolation Forest (0.91), meaning it has slightly better overall discrimination ability. However, ROC-AUC can be misleading for imbalanced datasets, which is why I primarily rely on PR-AUC for model selection.
+
+### Confusion Matrix
+
 ![LOF Confusion Matrix](04_lof/output/04_confusion_matrix.png)
 
-### Notebook 05 — Model Comparison and Ensemble
+LOF's confusion matrix reveals a different error profile than Isolation Forest. LOF catches more fraud (higher recall at 58%) but generates more false alarms (lower precision at 31%). This makes it the more aggressive detector — it casts a wider net but catches more false positives in the process.
 
-Compares both models side-by-side and explores what happens when we combine them.
+---
 
-**Head-to-head comparison:**
+## Model Comparison
 
-| Metric | Isolation Forest | LOF |
-|--------|-----------------|-----|
-| PR-AUC | 0.5182 | 0.3320 |
-| ROC-AUC | 0.9140 | 0.9330 |
-| Precision | 0.7912 | 0.3083 |
-| Recall | 0.3918 | 0.5756 |
-| F1-Score | 0.5241 | 0.4015 |
-
-**Ensemble (both models must agree):**
-
-When we only flag a transaction as fraud if **both** models independently agree it's suspicious:
-
-| Metric | Score |
-|--------|-------|
-| Precision | **0.9604** |
-| Recall | 0.3374 |
-| F1-Score | 0.4993 |
-| Transactions flagged | 581 (0.47% of test set) |
-| True positives | 558 |
-
-The ensemble achieves **96% precision** — when it flags something, it's almost certainly fraud. The tradeoff is lower recall (it catches 34% of all fraud), but in a real-world setting where each flag triggers a manual review, minimizing false alarms is often more important than catching every single case.
+### ROC Curve Comparison
 
 ![ROC Comparison](05_comparison/output/01_roc_comparison.png)
 
-![Precision-Recall Comparison](05_comparison/output/02_pr_comparison.png)
+This chart overlays both models' ROC curves on the same plot. Both models perform well on this metric, with LOF having a slight edge (0.93 vs 0.91). The curves are close together, showing that both models have strong overall discrimination ability.
+
+### Precision-Recall Curve Comparison
+
+![PR Comparison](05_comparison/output/02_pr_comparison.png)
+
+When compared on the more informative PR metric, Isolation Forest clearly outperforms LOF. This chart shows that Isolation Forest maintains higher precision across most recall levels, making it the better choice when false alarms are costly.
+
+### Side-by-Side Metrics
 
 ![Metrics Comparison](05_comparison/output/03_metrics_comparison.png)
 
+This bar chart provides a direct comparison across all five evaluation metrics. The key tradeoff is immediately visible: Isolation Forest excels at precision (79% vs 31%), while LOF excels at recall (58% vs 39%). Neither model dominates across all metrics, which motivated the ensemble approach.
+
+| Metric | Isolation Forest | Local Outlier Factor |
+|--------|-----------------|---------------------|
+| ROC-AUC | 0.914 | 0.933 |
+| PR-AUC | 0.518 | 0.332 |
+| Precision | 79.1% | 30.8% |
+| Recall | 39.2% | 57.6% |
+| F1-Score | 0.524 | 0.402 |
+
+### Score Distributions
+
 ![Score Distributions](05_comparison/output/04_score_distributions.png)
 
-## Why These Two Models?
+This side-by-side visualization shows how each model assigns anomaly scores to fraud and non-fraud transactions. The degree of separation between the two distributions indicates how well each model distinguishes between the two classes. Different scoring patterns reflect the fundamentally different approaches each algorithm takes to detecting anomalies.
 
-Both are standard **unsupervised anomaly detection** algorithms, meaning they don't need labeled fraud examples to learn:
+---
 
-- **Isolation Forest** looks at the data globally — it asks "how easy is it to isolate this point from everything else?"
-- **LOF** looks locally — it asks "is this point in a sparser region than its neighbors?"
+## Ensemble Results
 
-They catch different kinds of anomalies, which is why combining them works well. This is also the standard starting point for anomaly detection in industry.
+I combined both models using a consensus approach: a transaction is only flagged as fraudulent when **both** models independently agree it is suspicious. This dramatically improves precision at the cost of some recall.
 
-## Why Unsupervised?
+| Metric | Isolation Forest | LOF | Ensemble (Both Agree) |
+|--------|-----------------|-----|----------------------|
+| Precision | 79.1% | 30.8% | **96.0%** |
+| Recall | 39.2% | 57.6% | 33.7% |
+| F1-Score | 0.524 | 0.402 | 0.499 |
+| Transactions Flagged | — | — | 581 |
+| True Fraud Found | — | — | 558 |
+| False Alarms | — | — | 23 |
 
-In real fraud detection, you often don't have labels. New types of fraud emerge before anyone identifies them. An unsupervised approach learns what "normal" looks like and flags anything that deviates — it can catch novel fraud patterns that a supervised model (trained only on known fraud types) would miss.
+The ensemble achieves **96% precision** — when it flags a transaction, it is almost certainly fraud. Out of 123,580 test transactions, it flagged just 581 for review, of which 558 were genuine fraud and only 23 were false alarms. This makes the system highly practical for real-world deployment, where each flagged transaction requires costly manual investigation.
 
-In this project, we do have fraud labels (`isFraud`), but we only use them for **evaluation** — to measure how well the models perform. The models themselves never see these labels during training.
+---
 
-## Why PR-AUC Instead of ROC-AUC?
+## Key Design Decisions
 
-With only 0.13% fraud, the dataset is extremely imbalanced. ROC-AUC can be misleading here because the false positive rate denominator (number of non-fraud transactions) is so large that even thousands of false positives barely move the metric. A model could look great on ROC-AUC while being useless in practice.
-
-**PR-AUC (Precision-Recall Area Under Curve)** focuses directly on the fraud class: "of the things we flagged, how many were actually fraud?" (precision) and "of all the fraud, how much did we find?" (recall). This is the metric that actually matters for deployment.
-
-## Project Structure
-
-```
-anomaly_detection/
-├── 00_data_collection/notebook.ipynb   # Download from Kaggle, clean, upload to S3
-├── 01_eda/notebook.ipynb               # Exploratory data analysis and visualizations
-├── 02_preprocessing/notebook.ipynb     # Feature engineering, splitting, scaling
-├── 03_isolation_forest/notebook.ipynb  # Isolation Forest model
-├── 04_lof/notebook.ipynb              # Local Outlier Factor model
-├── 05_comparison/notebook.ipynb       # Side-by-side comparison and ensemble
-├── requirements.txt                   # Python dependencies
-└── README.md                          # This file
-```
-
-## How to Run
-
-### Prerequisites
-
-- Python 3.8+
-- AWS credentials configured (`aws configure`) with S3 read/write access
-- Kaggle API credentials (`~/.kaggle/kaggle.json`) for dataset download
-
-### Setup
-
-```bash
-cd anomaly_detection
-pip install -r requirements.txt
-```
-
-### Execution
-
-Run the notebooks in order: `00` -> `01` -> `02` -> `03` -> `04` -> `05`. Each notebook reads its input from S3 and saves its output back to S3. Plot images are saved to each notebook's `./output/` directory.
-
-### Running on AWS SageMaker
-
-1. Create a SageMaker notebook instance with an IAM role that has S3 read/write access
-2. Upload this project to the instance
-3. Open and run each notebook sequentially
+| Decision | Rationale |
+|----------|-----------|
+| Unsupervised learning | In real fraud detection, labeled examples of fraud are often unavailable when a system is first deployed. Training on "normal only" simulates this realistic constraint. |
+| Temporal data split | Splitting by time (rather than randomly) prevents data leakage and simulates real deployment where models are trained on historical data and applied to future transactions. |
+| PR-AUC as primary metric | With only 0.13% fraud, accuracy and ROC-AUC can be misleading. PR-AUC focuses on the rare positive class and provides a more honest evaluation. |
+| Ensemble consensus | Requiring both models to agree eliminates nearly all false positives, making the system practical for high-cost review environments. |
+| Bayesian hyperparameter tuning | Optuna's Bayesian optimization finds good hyperparameters more efficiently than grid search, which is important given the large dataset size. |

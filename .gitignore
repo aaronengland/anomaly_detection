@@ -213,3 +213,6 @@ __marimo__/
 00_data_collection/
 *.csv
 
+# Claude
+.claude/
+CLAUDE.md
