@@ -1,150 +1,184 @@
-# Anomaly Detection in Payroll Transactions
+# Anomaly Detection on Financial Transactions
 
-A comprehensive machine learning project for detecting anomalous transactions in payroll systems, designed to support HCM (Human Capital Management) companies in identifying unusual patterns and potential fraud.
+This project builds an anomaly detection system that identifies fraudulent transactions in financial data. It uses **unsupervised machine learning** — meaning the models learn what "normal" transactions look like without being told which ones are fraud — and then flags anything that looks unusual.
 
-## Overview
+This is the same approach used in the real world for payroll fraud detection, where companies need to catch suspicious activity before labeled examples of fraud are available.
 
-This project implements unsupervised anomaly detection on the PaySim synthetic financial transactions dataset, reframed as payroll anomaly detection—a direct use case for companies like Paylocity that handle payroll processing and must detect unusual workforce payment patterns.
+## What Does This Project Do?
 
-The project compares two state-of-the-art unsupervised algorithms:
-- **Isolation Forest**: Tree-based method that isolates anomalies by random feature selection
-- **Local Outlier Factor (LOF)**: Density-based method that identifies points with significantly lower local density than their neighbors
+Imagine you work at a company that processes millions of financial transactions. Most of them are legitimate, but a tiny fraction (about 1 in 800) are fraudulent. You can't manually review every transaction, so you need an automated system that says: "Hey, this one looks suspicious — you should check it."
 
-Both models are trained on historical transaction data and evaluated on held-out test sets using standard ML metrics adapted for imbalanced anomaly detection.
+That's exactly what this project builds. It trains two different anomaly detection models, compares their performance, and combines them into an ensemble that achieves **96% precision** — meaning when the system flags a transaction as suspicious, it's right 96 out of 100 times.
+
+## The Dataset
+
+This project uses **PaySim**, a publicly available synthetic dataset that simulates mobile money transactions. It's available on [Kaggle](https://www.kaggle.com/datasets/ealaxi/paysim1).
+
+- **6.3 million transactions** across 5 types: CASH_IN, CASH_OUT, DEBIT, PAYMENT, and TRANSFER
+- **11 columns** including transaction amount, sender/receiver balances before and after, and a fraud label
+- **Only 0.13% of transactions are fraud** — this extreme imbalance is realistic and makes the problem challenging
+
+## How It Works (Step by Step)
+
+The project is organized as 6 Jupyter notebooks, meant to be run in order:
+
+### Notebook 00 — Data Collection
+
+Downloads the PaySim dataset from Kaggle, performs basic cleaning (checking for missing values, ensuring correct data types), and uploads the cleaned data to AWS S3 as a parquet file for fast access by the other notebooks.
+
+### Notebook 01 — Exploratory Data Analysis (EDA)
+
+Explores the dataset visually to understand what we're working with:
+
+- **Class imbalance**: 99.87% of transactions are normal, only 0.13% are fraud
+- **Fraud by transaction type**: Fraud only occurs in TRANSFER and CASH_OUT transactions
+- **Amount patterns**: Fraudulent transactions tend to have distinctive amount and balance-change patterns
+- **Temporal trends**: How transaction volume and fraud incidents change over time
+
+This step generates 8 visualizations that help build intuition about the data before modeling.
+
+### Notebook 02 — Preprocessing
+
+Prepares the data for the machine learning models:
+
+1. **Feature engineering** — Creates new columns from the raw data that help the models detect fraud:
+   - `balance_change_orig` / `balance_change_dest`: How much the sender's and receiver's balances changed
+   - `amount_to_balance_ratio`: How large the transaction is relative to the sender's balance (a big withdrawal from a small account is suspicious)
+   - `is_balance_zeroed`: Whether the sender's balance went to zero (a strong fraud signal)
+   - `hour_of_day`: What time the transaction occurred
+   - One-hot encoded transaction type (CASH_IN, CASH_OUT, etc.)
+
+2. **Temporal train/valid/test split** — Splits the data by time, not randomly:
+   - **Training set (first 60% of time)**: ~600K non-fraud transactions only. The models learn what "normal" looks like from this.
+   - **Validation set (next 20% of time)**: ~228K transactions (both fraud and non-fraud). Used to tune model settings and pick the best decision threshold.
+   - **Test set (final 20% of time)**: ~124K transactions (both fraud and non-fraud). Used for final, unbiased performance evaluation.
+
+   Splitting by time simulates real deployment: the model trains on historical data and must detect fraud in future transactions it hasn't seen before.
+
+3. **Feature scaling** — Standardizes all numeric features to have mean 0 and standard deviation 1, which helps both models perform better.
+
+### Notebook 03 — Isolation Forest
+
+The first anomaly detection model. **Isolation Forest** works by randomly partitioning data with decision trees. The key insight: anomalies are rare and different from normal data, so they can be "isolated" in fewer random splits. Normal data points, being similar to each other, require many more splits to separate.
+
+- **Hyperparameter tuning**: Uses Optuna (a Bayesian optimization library) to search for the best model settings across 5 trials, optimizing for PR-AUC on the validation set
+- **Best parameters found**: 260 trees, 8 features per tree, ~1.3% contamination rate
+
+**Results on test set:**
+
+| Metric | Score |
+|--------|-------|
+| PR-AUC | 0.5182 |
+| ROC-AUC | 0.9140 |
+| Precision | 0.7912 |
+| Recall | 0.3918 |
+| F1-Score | 0.5241 |
+
+This means: when Isolation Forest flags a transaction as fraud, it's correct **79% of the time** (precision), and it catches **39% of all fraud** (recall).
+
+### Notebook 04 — Local Outlier Factor (LOF)
+
+The second anomaly detection model. **LOF** works differently — it compares each transaction's "local density" (how close its nearest neighbors are) to its neighbors' local densities. If a point is in a much sparser region than its neighbors, it's likely an anomaly.
+
+- **Hyperparameter tuning**: 5 Optuna trials optimizing PR-AUC, tuning the number of neighbors and contamination rate
+- **Best parameters found**: 21 neighbors, ~9.8% contamination rate
+
+**Results on test set:**
+
+| Metric | Score |
+|--------|-------|
+| PR-AUC | 0.3320 |
+| ROC-AUC | 0.9330 |
+| Precision | 0.3083 |
+| Recall | 0.5756 |
+| F1-Score | 0.4015 |
+
+LOF catches **more fraud** (58% recall vs. 39%), but at the cost of **more false alarms** (31% precision vs. 79%). This is the classic precision-recall tradeoff.
+
+### Notebook 05 — Model Comparison and Ensemble
+
+Compares both models side-by-side and explores what happens when we combine them.
+
+**Head-to-head comparison:**
+
+| Metric | Isolation Forest | LOF |
+|--------|-----------------|-----|
+| PR-AUC | 0.5182 | 0.3320 |
+| ROC-AUC | 0.9140 | 0.9330 |
+| Precision | 0.7912 | 0.3083 |
+| Recall | 0.3918 | 0.5756 |
+| F1-Score | 0.5241 | 0.4015 |
+
+**Ensemble (both models must agree):**
+
+When we only flag a transaction as fraud if **both** models independently agree it's suspicious:
+
+| Metric | Score |
+|--------|-------|
+| Precision | **0.9604** |
+| Recall | 0.3374 |
+| F1-Score | 0.4993 |
+| Transactions flagged | 581 (0.47% of test set) |
+| True positives | 558 |
+
+The ensemble achieves **96% precision** — when it flags something, it's almost certainly fraud. The tradeoff is lower recall (it catches 34% of all fraud), but in a real-world setting where each flag triggers a manual review, minimizing false alarms is often more important than catching every single case.
+
+## Why These Two Models?
+
+Both are standard **unsupervised anomaly detection** algorithms, meaning they don't need labeled fraud examples to learn:
+
+- **Isolation Forest** looks at the data globally — it asks "how easy is it to isolate this point from everything else?"
+- **LOF** looks locally — it asks "is this point in a sparser region than its neighbors?"
+
+They catch different kinds of anomalies, which is why combining them works well. This is also the standard starting point for anomaly detection in industry.
+
+## Why Unsupervised?
+
+In real fraud detection, you often don't have labels. New types of fraud emerge before anyone identifies them. An unsupervised approach learns what "normal" looks like and flags anything that deviates — it can catch novel fraud patterns that a supervised model (trained only on known fraud types) would miss.
+
+In this project, we do have fraud labels (`isFraud`), but we only use them for **evaluation** — to measure how well the models perform. The models themselves never see these labels during training.
+
+## Why PR-AUC Instead of ROC-AUC?
+
+With only 0.13% fraud, the dataset is extremely imbalanced. ROC-AUC can be misleading here because the false positive rate denominator (number of non-fraud transactions) is so large that even thousands of false positives barely move the metric. A model could look great on ROC-AUC while being useless in practice.
+
+**PR-AUC (Precision-Recall Area Under Curve)** focuses directly on the fraud class: "of the things we flagged, how many were actually fraud?" (precision) and "of all the fraud, how much did we find?" (recall). This is the metric that actually matters for deployment.
 
 ## Project Structure
 
-| Notebook | Purpose |
-|----------|---------|
-| `00_data_collection/notebook.ipynb` | Download PaySim dataset from Kaggle, clean, and upload to S3 |
-| `01_eda/notebook.ipynb` | Exploratory data analysis: distributions, correlations, fraud patterns |
-| `02_preprocessing/notebook.ipynb` | Feature engineering, scaling, and temporal train/test split |
-| `03_isolation_forest/notebook.ipynb` | Build, tune, and evaluate Isolation Forest model |
-| `04_lof/notebook.ipynb` | Build, tune, and evaluate Local Outlier Factor model |
-| `05_comparison/notebook.ipynb` | Compare model performance and create ensemble insights |
+```
+anomaly_detection/
+├── 00_data_collection/notebook.ipynb   # Download from Kaggle, clean, upload to S3
+├── 01_eda/notebook.ipynb               # Exploratory data analysis and visualizations
+├── 02_preprocessing/notebook.ipynb     # Feature engineering, splitting, scaling
+├── 03_isolation_forest/notebook.ipynb  # Isolation Forest model
+├── 04_lof/notebook.ipynb              # Local Outlier Factor model
+├── 05_comparison/notebook.ipynb       # Side-by-side comparison and ensemble
+├── requirements.txt                   # Python dependencies
+└── README.md                          # This file
+```
 
-## Dataset
-
-| Aspect | Details |
-|--------|---------|
-| **Name** | PaySim Synthetic Financial Transactions |
-| **Source** | Kaggle: https://www.kaggle.com/datasets/ealaxi/paysim1 |
-| **Records** | 6,362,620 transactions |
-| **Fraud Rate** | ~0.13% (highly imbalanced) |
-| **Features** | step, type, amount, nameOrig, oldbalanceOrg, newbalanceOrig, nameDest, oldbalanceDest, newbalanceDest, isFraud, isFlaggedFraud |
-| **S3 Location** | `s3://anomaly-detection-demo/` |
-
-## Methodology
-
-### 00 Data Collection
-- Download PaySim dataset from Kaggle using `kagglehub`
-- Perform basic data cleaning (null handling, type conversions)
-- Preserve the class distribution in any sampling
-- Upload cleaned data to S3 for reproducibility
-
-### 01 Exploratory Data Analysis
-- Analyze class imbalance: 99.87% normal vs. 0.13% fraudulent
-- Examine fraud patterns by transaction type (TRANSFER and CASH_OUT most common)
-- Visualize amount distributions, balance changes, and temporal trends
-- Compute correlation matrix to understand feature relationships
-
-### 02 Preprocessing
-- **Feature Engineering**:
-  - Balance change calculations (orig and dest)
-  - Amount-to-balance ratios (proxy for risk)
-  - Balance zeroing indicator (strong fraud signal)
-  - Hour-of-day from transaction step
-  - One-hot encoding of transaction type
-- **Scaling**: StandardScaler on numeric features
-- **Temporal Split**: 80% of steps for training (non-fraud only), 20% for testing (all data)
-  - This simulates deployment where models are trained on known-clean data
-
-### 03 Isolation Forest
-- **Algorithm**: Tree-based isolation via random subspace partitioning
-- **Hyperparameter Tuning**: Optuna optimization of contamination, n_estimators, max_samples, max_features
-- **Evaluation**: Precision, Recall, F1 at multiple thresholds; ROC-AUC and PR-AUC
-- **Why This Model**: Effective on high-dimensional data, scales well, robust to feature scaling
-
-### 04 Local Outlier Factor
-- **Algorithm**: Density-based anomaly detection using k-nearest neighbors local density
-- **Hyperparameter Tuning**: Optuna optimization of n_neighbors, contamination
-- **Evaluation**: Same metrics as Isolation Forest for fair comparison
-- **Why This Model**: Captures local density variations; good at finding contextual anomalies
-
-### 05 Model Comparison
-- Side-by-side metrics comparison at optimal thresholds
-- ROC curve overlay and precision-recall curve overlay
-- Ensemble analysis: flag anomalies when both models agree (high precision, lower recall)
-- Visualization of anomaly score distributions and agreement patterns
-
-## Results
-
-*Results will be populated after model training. Expected performance:*
-
-- **Isolation Forest**: ROC-AUC ~0.85–0.92, PR-AUC ~0.20–0.35 (accounts for class imbalance)
-- **LOF**: ROC-AUC ~0.80–0.90, PR-AUC ~0.15–0.30 (density-sensitive)
-- **Ensemble (both agree)**: Higher precision (~40–60%), lower recall (~20–35%)
-
-## Key Design Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| **Unsupervised Learning** | Fraud labels are for evaluation only; in production, new fraud types emerge before labeling |
-| **Temporal Train/Test Split** | Simulates real-world deployment where model is trained on historical clean data |
-| **Train on Non-Fraud Only** | Mirrors actual operational pipelines where model is fitted to baseline behavior |
-| **Isolation Forest + LOF** | Complementary algorithms: isolation (axis-aligned partitions) vs. density (local neighborhoods) |
-| **Threshold Tuning** | Precision-recall curve analysis determines operating point based on business cost of false positives/negatives |
-| **Feature Engineering** | Balance changes and ratios are domain-relevant for payroll: zero-balance, large rapid changes signal risk |
-| **Class Imbalance Handling** | Evaluation via PR-AUC and F1; no synthetic oversampling to preserve natural distribution |
-
-## Getting Started
+## How to Run
 
 ### Prerequisites
+
 - Python 3.8+
-- AWS credentials configured (for S3 access)
-- Kaggle API credentials (for dataset download)
+- AWS credentials configured (`aws configure`) with S3 read/write access
+- Kaggle API credentials (`~/.kaggle/kaggle.json`) for dataset download
 
 ### Setup
 
-1. Clone the repository and install dependencies:
-   ```bash
-   cd anomaly_detection
-   pip install -r requirements.txt
-   ```
+```bash
+cd anomaly_detection
+pip install -r requirements.txt
+```
 
-2. Configure AWS credentials:
-   ```bash
-   aws configure
-   ```
+### Execution
 
-3. Set up Kaggle API credentials:
-   - Download `kaggle.json` from https://www.kaggle.com/settings/account
-   - Place in `~/.kaggle/kaggle.json`
-   - `chmod 600 ~/.kaggle/kaggle.json`
-
-4. Run notebooks in order:
-   - Start with `00_data_collection/notebook.ipynb` to download and upload data
-   - Then run `01_eda` through `05_comparison` sequentially
+Run the notebooks in order: `00` -> `01` -> `02` -> `03` -> `04` -> `05`. Each notebook reads its input from S3 and saves its output back to S3. Plot images are saved to each notebook's `./output/` directory.
 
 ### Running on AWS SageMaker
 
-1. Create a SageMaker notebook instance with appropriate IAM role (S3 read/write, Kaggle API access)
+1. Create a SageMaker notebook instance with an IAM role that has S3 read/write access
 2. Upload this project to the instance
-3. Open notebooks and execute cells sequentially
-4. All output plots are saved to the `output/` subdirectories
-5. Models are serialized for deployment or further analysis
-
-## Files
-
-- `requirements.txt`: Python package dependencies
-- `00_data_collection/notebook.ipynb`: Data ingestion pipeline
-- `01_eda/notebook.ipynb`: Exploratory analysis and visualization
-- `02_preprocessing/notebook.ipynb`: Feature engineering and data preparation
-- `03_isolation_forest/notebook.ipynb`: Isolation Forest implementation
-- `04_lof/notebook.ipynb`: LOF implementation
-- `05_comparison/notebook.ipynb`: Model comparison and ensemble analysis
-- `README.md`: This file
-
-## Contact & Attribution
-
-This project demonstrates advanced anomaly detection techniques for payroll transaction monitoring. Designed for portfolio review.
+3. Open and run each notebook sequentially
