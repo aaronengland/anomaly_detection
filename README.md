@@ -37,6 +37,22 @@ Explores the dataset visually to understand what we're working with:
 
 This step generates 8 visualizations that help build intuition about the data before modeling.
 
+![Class Distribution](01_eda/output/01_class_distribution.png)
+
+![Transaction Type Distribution](01_eda/output/02_transaction_type_distribution.png)
+
+![Amount Distribution](01_eda/output/03_amount_distribution.png)
+
+![Amount by Type](01_eda/output/04_amount_by_type.png)
+
+![Fraud by Transaction Type](01_eda/output/05_fraud_by_type.png)
+
+![Balance Analysis](01_eda/output/06_balance_analysis.png)
+
+![Correlation Heatmap](01_eda/output/07_correlation_heatmap.png)
+
+![Temporal Distribution](01_eda/output/08_step_distribution.png)
+
 ### Notebook 02 — Preprocessing
 
 Prepares the data for the machine learning models:
@@ -76,6 +92,14 @@ The first anomaly detection model. **Isolation Forest** works by randomly partit
 
 This means: when Isolation Forest flags a transaction as fraud, it's correct **79% of the time** (precision), and it catches **39% of all fraud** (recall).
 
+![Isolation Forest Anomaly Scores](03_isolation_forest/output/01_anomaly_scores.png)
+
+![Isolation Forest Precision-Recall Curve](03_isolation_forest/output/02_precision_recall_curve.png)
+
+![Isolation Forest ROC Curve](03_isolation_forest/output/03_roc_curve.png)
+
+![Isolation Forest Confusion Matrix](03_isolation_forest/output/04_confusion_matrix.png)
+
 ### Notebook 04 — Local Outlier Factor (LOF)
 
 The second anomaly detection model. **LOF** works differently — it compares each transaction's "local density" (how close its nearest neighbors are) to its neighbors' local densities. If a point is in a much sparser region than its neighbors, it's likely an anomaly.
@@ -94,6 +118,14 @@ The second anomaly detection model. **LOF** works differently — it compares ea
 | F1-Score | 0.4015 |
 
 LOF catches **more fraud** (58% recall vs. 39%), but at the cost of **more false alarms** (31% precision vs. 79%). This is the classic precision-recall tradeoff.
+
+![LOF Anomaly Scores](04_lof/output/01_anomaly_scores.png)
+
+![LOF Precision-Recall Curve](04_lof/output/02_precision_recall_curve.png)
+
+![LOF ROC Curve](04_lof/output/03_roc_curve.png)
+
+![LOF Confusion Matrix](04_lof/output/04_confusion_matrix.png)
 
 ### Notebook 05 — Model Comparison and Ensemble
 
@@ -122,6 +154,14 @@ When we only flag a transaction as fraud if **both** models independently agree 
 | True positives | 558 |
 
 The ensemble achieves **96% precision** — when it flags something, it's almost certainly fraud. The tradeoff is lower recall (it catches 34% of all fraud), but in a real-world setting where each flag triggers a manual review, minimizing false alarms is often more important than catching every single case.
+
+![ROC Comparison](05_comparison/output/01_roc_comparison.png)
+
+![Precision-Recall Comparison](05_comparison/output/02_pr_comparison.png)
+
+![Metrics Comparison](05_comparison/output/03_metrics_comparison.png)
+
+![Score Distributions](05_comparison/output/04_score_distributions.png)
 
 ## Why These Two Models?
 
