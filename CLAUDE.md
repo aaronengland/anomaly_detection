@@ -1,10 +1,10 @@
 # Project Overview
 
-Anomaly Detection on financial transactions — a portfolio project for Aaron England's personal website (aaron-england.com). This project is specifically designed to demonstrate skills relevant to a **Staff Data Scientist role at Paylocity**, an HCM/HR software company that does payroll anomaly detection and unusual workforce pattern detection as part of their AI product suite.
+Anomaly Detection on financial transactions - a portfolio project for Aaron England's personal website (aaron-england.com). This project is specifically designed to demonstrate skills relevant to a **Staff Data Scientist role at Paylocity**, an HCM/HR software company that does payroll anomaly detection and unusual workforce pattern detection as part of their AI product suite.
 
 ## Why This Project Exists
 
-Paylocity's data science team builds anomaly detection systems for payroll transactions and workforce data. This project demonstrates unsupervised anomaly detection on financial transaction data — a direct analog to detecting anomalous payroll activity.
+Paylocity's data science team builds anomaly detection systems for payroll transactions and workforce data. This project demonstrates unsupervised anomaly detection on financial transaction data - a direct analog to detecting anomalous payroll activity.
 
 ## S3 Bucket
 
@@ -14,7 +14,7 @@ All data is read from and written to this bucket. Raw data goes in `00_data_coll
 
 ## Dataset
 
-PaySim Synthetic Financial Transactions (Kaggle) — ~6.3M mobile money transactions with fraud labels. Features: step, type, amount, nameOrig, oldbalanceOrg, newbalanceOrig, nameDest, oldbalanceDest, newbalanceDest, isFraud, isFlaggedFraud. Fraud rate is ~0.13% (extreme class imbalance).
+PaySim Synthetic Financial Transactions (Kaggle) - ~6.3M mobile money transactions with fraud labels. Features: step, type, amount, nameOrig, oldbalanceOrg, newbalanceOrig, nameDest, oldbalanceDest, newbalanceDest, isFraud, isFlaggedFraud. Fraud rate is ~0.13% (extreme class imbalance).
 
 ## Project Structure
 
@@ -36,7 +36,7 @@ Run notebooks sequentially: 00 → 01 → 02 → 03 → 04 → 05. Each notebook
 
 ## Key Technical Details
 
-- **Unsupervised approach**: Models train on non-fraud data only from the training period — simulates real-world deployment where labels may not be available
+- **Unsupervised approach**: Models train on non-fraud data only from the training period - simulates real-world deployment where labels may not be available
 - **Temporal split**: First 60% of time steps = train, next 20% = valid, last 20% = test (no data leakage)
 - **Feature engineering**: balance_change_orig, balance_change_dest, amount_to_balance_ratio, is_balance_zeroed, hour_of_day, one-hot transaction type
 - **Both models use Bayesian hyperparameter tuning via Optuna** (20 trials each)

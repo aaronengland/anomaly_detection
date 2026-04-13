@@ -1,12 +1,12 @@
 # Anomaly Detection on Financial Transactions
 
-In this project, I built a system to automatically detect fraudulent transactions in a dataset of over 6.3 million simulated mobile money transfers. The challenge was that fraud is extremely rare — only about 1 in every 800 transactions is fraudulent — so I used an "unsupervised" approach, meaning the models learned what normal transactions look like without ever being shown examples of fraud, and then flagged anything that looked unusual. I trained two different detection models (Isolation Forest and Local Outlier Factor), tuned them using Bayesian optimization, and then combined their predictions into an ensemble that achieves 96% precision — meaning that when the system flags a transaction as suspicious, it is correct 96 out of 100 times.
+In this project, I built a system to automatically detect fraudulent transactions in a dataset of over 6.3 million simulated mobile money transfers. The challenge was that fraud is extremely rare - only about 1 in every 800 transactions is fraudulent - so I used an "unsupervised" approach, meaning the models learned what normal transactions look like without ever being shown examples of fraud, and then flagged anything that looked unusual. I trained two different detection models (Isolation Forest and Local Outlier Factor), tuned them using Bayesian optimization, and then combined their predictions into an ensemble that achieves 96% precision - meaning that when the system flags a transaction as suspicious, it is correct 96 out of 100 times.
 
 ---
 
 ## Dataset Overview
 
-The data comes from PaySim, a synthetic dataset that simulates real-world mobile money transactions. It contains 6,362,620 transactions across five types, with an extreme class imbalance — only 0.13% of transactions are fraudulent.
+The data comes from PaySim, a synthetic dataset that simulates real-world mobile money transactions. It contains 6,362,620 transactions across five types, with an extreme class imbalance - only 0.13% of transactions are fraudulent.
 
 | Property | Value |
 |----------|-------|
@@ -25,7 +25,7 @@ The data comes from PaySim, a synthetic dataset that simulates real-world mobile
 
 ![Class Distribution](01_eda/output/01_class_distribution.png)
 
-This chart shows how dramatically imbalanced the dataset is. The overwhelming majority of transactions (99.87%) are legitimate, with fraud making up just a tiny sliver (0.13%). I used a logarithmic scale here so the fraud bar is actually visible — on a regular scale it would be nearly invisible. This extreme imbalance is why I chose unsupervised methods that learn "normal" behavior rather than trying to learn from the handful of fraud examples.
+This chart shows how dramatically imbalanced the dataset is. The overwhelming majority of transactions (99.87%) are legitimate, with fraud making up just a tiny sliver (0.13%). I used a logarithmic scale here so the fraud bar is actually visible - on a regular scale it would be nearly invisible. This extreme imbalance is why I chose unsupervised methods that learn "normal" behavior rather than trying to learn from the handful of fraud examples.
 
 ### Transaction Type Distribution
 
@@ -37,13 +37,13 @@ This chart breaks down how many transactions fall into each category. Cash Out a
 
 ![Fraud by Transaction Type](01_eda/output/05_fraud_by_type.png)
 
-This is one of the most important findings from the exploratory analysis. Fraud occurs exclusively in Transfer and Cash Out transactions — the two types where money leaves an account. Cash In, Payment, and Debit transactions have zero fraud. This makes intuitive sense: a fraudster's goal is to move money out of a victim's account. The fraud rate for Transfers (~4.6%) is notably higher than Cash Out (~4.1%).
+This is one of the most important findings from the exploratory analysis. Fraud occurs exclusively in Transfer and Cash Out transactions - the two types where money leaves an account. Cash In, Payment, and Debit transactions have zero fraud. This makes intuitive sense: a fraudster's goal is to move money out of a victim's account. The fraud rate for Transfers (~4.6%) is notably higher than Cash Out (~4.1%).
 
 ### Transaction Amount Distribution
 
 ![Amount Distribution](01_eda/output/03_amount_distribution.png)
 
-This chart compares the distribution of transaction amounts for fraudulent versus non-fraudulent transactions. Both are shown on a logarithmic scale because amounts span a huge range ($0 to $92.4 million). Fraudulent transactions tend to involve larger amounts, which makes sense — if someone is stealing money, they typically try to take as much as possible.
+This chart compares the distribution of transaction amounts for fraudulent versus non-fraudulent transactions. Both are shown on a logarithmic scale because amounts span a huge range ($0 to $92.4 million). Fraudulent transactions tend to involve larger amounts, which makes sense - if someone is stealing money, they typically try to take as much as possible.
 
 ### Amount by Transaction Type
 
@@ -55,7 +55,7 @@ These box plots show how transaction amounts vary across the five transaction ty
 
 ![Balance Analysis](01_eda/output/06_balance_analysis.png)
 
-This scatter plot reveals a key fraud pattern: the relationship between transaction amount and how the sender's balance changes. Many fraudulent transactions (shown in a distinct color) result in the sender's balance being completely emptied — a strong indicator of suspicious activity. This insight directly informed the features I engineered for the models.
+This scatter plot reveals a key fraud pattern: the relationship between transaction amount and how the sender's balance changes. Many fraudulent transactions (shown in a distinct color) result in the sender's balance being completely emptied - a strong indicator of suspicious activity. This insight directly informed the features I engineered for the models.
 
 ### Correlation Heatmap
 
@@ -98,7 +98,7 @@ I split the data by time to simulate a real-world deployment where models are tr
 | Validation | Next 20% of time steps | 228,103 | 0.68% | Tune hyperparameters and thresholds |
 | Test | Final 20% of time steps | 123,580 | 1.34% | Final unbiased evaluation |
 
-The training set contains only non-fraudulent transactions — this is the core of the unsupervised approach. The models never see fraud during training; they learn the patterns of normal behavior and then flag anything that deviates from those patterns.
+The training set contains only non-fraudulent transactions - this is the core of the unsupervised approach. The models never see fraud during training; they learn the patterns of normal behavior and then flag anything that deviates from those patterns.
 
 ---
 
@@ -106,13 +106,13 @@ The training set contains only non-fraudulent transactions — this is the core 
 
 Isolation Forest works by randomly splitting data with decision trees. The key insight is that anomalies are rare and different from normal data, so they can be "isolated" in fewer splits. A normal transaction is buried deep in the data and takes many splits to separate, while a fraudulent transaction stands out and can be isolated quickly.
 
-I used Bayesian optimization (Optuna) to tune the hyperparameters, optimizing for PR-AUC — a metric specifically designed for imbalanced datasets where the thing you are looking for is very rare.
+I used Bayesian optimization (Optuna) to tune the hyperparameters, optimizing for PR-AUC - a metric specifically designed for imbalanced datasets where the thing you are looking for is very rare.
 
 ### Anomaly Score Distribution
 
 ![Isolation Forest Anomaly Scores](03_isolation_forest/output/01_anomaly_scores.png)
 
-This histogram shows how the model scores each transaction. Higher scores mean "more anomalous." The dashed vertical line is the optimal threshold — transactions scoring above this line get flagged as suspicious. The key takeaway is the separation between the non-fraud scores (clustered to the left) and fraud scores (spread further to the right), indicating the model is learning meaningful patterns.
+This histogram shows how the model scores each transaction. Higher scores mean "more anomalous." The dashed vertical line is the optimal threshold - transactions scoring above this line get flagged as suspicious. The key takeaway is the separation between the non-fraud scores (clustered to the left) and fraud scores (spread further to the right), indicating the model is learning meaningful patterns.
 
 ### Precision-Recall Curve
 
@@ -124,7 +124,7 @@ This curve shows the tradeoff between precision (when I flag something, how ofte
 
 ![Isolation Forest ROC Curve](03_isolation_forest/output/03_roc_curve.png)
 
-The ROC curve shows how well the model separates fraud from non-fraud across all possible thresholds. An ROC-AUC of 0.91 means the model has strong discriminating power — if I randomly picked one fraudulent and one legitimate transaction, the model would correctly rank the fraudulent one as more suspicious 91% of the time.
+The ROC curve shows how well the model separates fraud from non-fraud across all possible thresholds. An ROC-AUC of 0.91 means the model has strong discriminating power - if I randomly picked one fraudulent and one legitimate transaction, the model would correctly rank the fraudulent one as more suspicious 91% of the time.
 
 ### Confusion Matrix
 
@@ -136,7 +136,7 @@ This grid shows exactly what the model got right and wrong on the test set at th
 
 ## Model 2: Local Outlier Factor (LOF)
 
-Local Outlier Factor takes a different approach — instead of isolating points, it compares the "density" of each transaction's neighborhood to its neighbors' neighborhoods. If a transaction sits in a sparse region while its neighbors are in dense regions, it is likely an outlier. Think of it like noticing someone standing alone in a crowd — they are conspicuous because everyone around them is clustered together.
+Local Outlier Factor takes a different approach - instead of isolating points, it compares the "density" of each transaction's neighborhood to its neighbors' neighborhoods. If a transaction sits in a sparse region while its neighbors are in dense regions, it is likely an outlier. Think of it like noticing someone standing alone in a crowd - they are conspicuous because everyone around them is clustered together.
 
 ### Anomaly Score Distribution
 
@@ -160,7 +160,7 @@ Interestingly, LOF achieves a slightly higher ROC-AUC (0.93) than Isolation Fore
 
 ![LOF Confusion Matrix](04_lof/output/04_confusion_matrix.png)
 
-LOF's confusion matrix reveals a different error profile than Isolation Forest. LOF catches more fraud (higher recall at 58%) but generates more false alarms (lower precision at 31%). This makes it the more aggressive detector — it casts a wider net but catches more false positives in the process.
+LOF's confusion matrix reveals a different error profile than Isolation Forest. LOF catches more fraud (higher recall at 58%) but generates more false alarms (lower precision at 31%). This makes it the more aggressive detector - it casts a wider net but catches more false positives in the process.
 
 ---
 
@@ -209,11 +209,11 @@ I combined both models using a consensus approach: a transaction is only flagged
 | Precision | 79.1% | 30.8% | **96.0%** |
 | Recall | 39.2% | 57.6% | 33.7% |
 | F1-Score | 0.524 | 0.402 | 0.499 |
-| Transactions Flagged | — | — | 581 |
-| True Fraud Found | — | — | 558 |
-| False Alarms | — | — | 23 |
+| Transactions Flagged | - | - | 581 |
+| True Fraud Found | - | - | 558 |
+| False Alarms | - | - | 23 |
 
-The ensemble achieves **96% precision** — when it flags a transaction, it is almost certainly fraud. Out of 123,580 test transactions, it flagged just 581 for review, of which 558 were genuine fraud and only 23 were false alarms. This makes the system highly practical for real-world deployment, where each flagged transaction requires costly manual investigation.
+The ensemble achieves **96% precision** - when it flags a transaction, it is almost certainly fraud. Out of 123,580 test transactions, it flagged just 581 for review, of which 558 were genuine fraud and only 23 were false alarms. This makes the system highly practical for real-world deployment, where each flagged transaction requires costly manual investigation.
 
 ---
 
